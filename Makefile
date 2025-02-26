@@ -204,19 +204,50 @@ run-dev: check-deps
 	@echo "$(CYAN)$(BOLD)║     KHOJ DEVELOPMENT ENVIRONMENT       ║$(RESET)"
 	@echo "$(CYAN)$(BOLD)╚════════════════════════════════════════╝$(RESET)"
 	@echo ""
-	@echo "$(GREEN)$(BOLD)✅ Development environment is starting!$(RESET)"
-	@echo "$(DIM)   Backend API: http://127.0.0.1:42110$(RESET)"
-	@echo "$(DIM)   Frontend UI: http://localhost:3000$(RESET)"
+	@echo "$(GREEN)$(BOLD)✅ Development environment is running!$(RESET)"
+	@echo ""
+	@echo "$(MAGENTA)$(BOLD)Server URLs (access in your browser):$(RESET)"
+	@echo "  $(DIM)• Backend API: http://127.0.0.1:42110$(RESET)"
+	@echo "  $(DIM)• Frontend UI: http://localhost:3000$(RESET)"
 	@echo ""
 	@echo "$(MAGENTA)$(BOLD)Commands:$(RESET)"
 	@echo "  $(DIM)• Run$(RESET) $(BOLD)make logs-backend$(RESET) $(DIM)in another terminal to see backend logs$(RESET)"
 	@echo "  $(DIM)• Run$(RESET) $(BOLD)make logs-frontend$(RESET) $(DIM)in another terminal to see frontend logs$(RESET)"
 	@echo "  $(DIM)• Run$(RESET) $(BOLD)make stop-servers$(RESET) $(DIM)to stop all servers$(RESET)"
 	@echo ""
-	@echo "$(YELLOW)Servers are running in the background. You can continue using this terminal.$(RESET)"
-	@echo "$(YELLOW)Opening browser...$(RESET)"
-	@sleep 5
-	@-$(OPEN_BROWSER) http://localhost:3000 >/dev/null 2>&1
+	@echo "$(YELLOW)$(BOLD)Starting monitoring loop. Press Ctrl+C to exit monitoring (servers will continue to run).$(RESET)"
+	@echo ""
+	@# Start the monitoring loop
+	@while true; do \
+		clear; \
+		echo "$(CYAN)$(BOLD)╔════════════════════════════════════════╗$(RESET)"; \
+		echo "$(CYAN)$(BOLD)║     KHOJ SERVERS STATUS MONITOR        ║$(RESET)"; \
+		echo "$(CYAN)$(BOLD)╚════════════════════════════════════════╝$(RESET)"; \
+		echo ""; \
+		echo "$(BOLD)BACKEND SERVER:$(RESET)"; \
+		if pgrep -f "khoj -vv" > /dev/null; then \
+			echo "$(GREEN)$(BOLD)[RUNNING]$(RESET) Backend server is active"; \
+			echo ""; \
+			echo "$(BOLD)Last 10 lines of backend logs:$(RESET)"; \
+			tail -n 10 $(TMP_DIR)/logs/backend.log | sed 's/^/  /'; \
+		else \
+			echo "$(RED)$(BOLD)[STOPPED]$(RESET) Backend server is not running"; \
+		fi; \
+		echo ""; \
+		echo "$(BOLD)FRONTEND SERVER:$(RESET)"; \
+		if pgrep -f "yarn dev" > /dev/null; then \
+			echo "$(GREEN)$(BOLD)[RUNNING]$(RESET) Frontend server is active"; \
+			echo ""; \
+			echo "$(BOLD)Last 10 lines of frontend logs:$(RESET)"; \
+			tail -n 10 $(TMP_DIR)/logs/frontend.log | sed 's/^/  /'; \
+		else \
+			echo "$(RED)$(BOLD)[STOPPED]$(RESET) Frontend server is not running"; \
+		fi; \
+		echo ""; \
+		echo "$(YELLOW)Press Ctrl+C to exit monitoring (servers will continue to run)$(RESET)"; \
+		echo "$(YELLOW)Monitoring will refresh every 5 seconds...$(RESET)"; \
+		sleep 5; \
+	done
 
 # Stop all running servers from run-dev
 stop-servers:

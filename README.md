@@ -83,3 +83,5 @@ Made with [contrib.rocks](https://contrib.rocks).
 ### Interested in Contributing?
 
 We are always looking for contributors to help us build new features, improve the project documentation, or fix bugs. If you're interested, please see our [Contributing Guidelines](https://docs.khoj.dev/contributing/development) and check out our [Contributors Project Board](https://github.com/orgs/khoj-ai/projects/4).
+
+For developers setting up a local development environment, we have a detailed [Developer Guide](./DEVELOPER.md) with instructions on using our Makefile to streamline the development workflow.

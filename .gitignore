@@ -58,3 +58,7 @@ src/interface/android/local.properties
 
 # Python
 .python-version
+
+# Makefile
+.backend.pid
+.frontend.pid
