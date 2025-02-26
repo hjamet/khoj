@@ -9,17 +9,34 @@ KHOJ := $(VENV_DIR)/bin/khoj
 PROJECT_DIR := $(shell pwd)
 WEB_DIR := $(PROJECT_DIR)/src/interface/web
 TMP_DIR := $(PROJECT_DIR)/.tmp
+SHELL := /bin/bash
 
-# Colors for messages
-CYAN := \033[36m
-GREEN := \033[32m
-YELLOW := \033[33m
-RED := \033[31m
-BLUE := \033[34m
-MAGENTA := \033[35m
-BOLD := \033[1m
-DIM := \033[2m
-RESET := \033[0m
+# Disable colors by default
+COLOR_SUPPORT ?= 0
+ifeq ($(COLOR_SUPPORT),1)
+	# Colors for messages
+	CYAN := \033[36m
+	GREEN := \033[32m
+	YELLOW := \033[33m
+	RED := \033[31m
+	BLUE := \033[34m
+	MAGENTA := \033[35m
+	BOLD := \033[1m
+	DIM := \033[2m
+	RESET := \033[0m
+else
+	# No colors
+	CYAN :=
+	GREEN :=
+	YELLOW :=
+	RED :=
+	BLUE :=
+	MAGENTA :=
+	BOLD :=
+	DIM :=
+	RESET :=
+endif
+
 OK_BADGE := $(BOLD)$(GREEN)[OK]$(RESET)
 ERROR_BADGE := $(BOLD)$(RED)[ERROR]$(RESET)
 LOADING_BADGE := $(BOLD)$(YELLOW)[LOADING]$(RESET)
@@ -42,7 +59,7 @@ else
 endif
 
 # Main targets
-.PHONY: all install setup-db build-frontend run-backend run-frontend-dev dev run-dev check-deps logs-backend logs-frontend stop-servers clean help
+.PHONY: all install setup-db build-frontend run-backend run-frontend-dev dev run-dev run-dev-color check-deps logs-backend logs-frontend stop-servers clean help
 
 all: help
 
@@ -56,7 +73,8 @@ help:
 	@echo "  $(YELLOW)make run-backend$(RESET)      - Run Khoj backend server in anonymous mode"
 	@echo "  $(YELLOW)make run-frontend-dev$(RESET) - Run frontend development server"
 	@echo "  $(YELLOW)make dev$(RESET)              - Instructions for complete development setup"
-	@echo "  $(YELLOW)make run-dev$(RESET)          - Launch and monitor backend and frontend servers with live status updates"
+	@echo "  $(YELLOW)make run-dev$(RESET)          - Launch and monitor backend and frontend servers (no colors)"
+	@echo "  $(YELLOW)make run-dev-color$(RESET)    - Launch and monitor servers with colored output"
 	@echo "  $(YELLOW)make logs-backend$(RESET)     - View backend server logs in real-time"
 	@echo "  $(YELLOW)make logs-frontend$(RESET)    - View frontend server logs in real-time"
 	@echo "  $(YELLOW)make stop-servers$(RESET)     - Stop all running development servers"
@@ -180,6 +198,15 @@ open-browser:
 	@echo "$(CYAN)Opening browser...$(RESET)"
 	@$(OPEN_BROWSER) http://localhost:3000 >/dev/null 2>&1 || true
 
+# Open logs in separate terminals
+open-logs-backend:
+	@echo "$(CYAN)Opening backend logs in a new terminal...$(RESET)"
+	@$(OPEN_TERMINAL) "cd $(PROJECT_DIR) && make logs-backend" >/dev/null 2>&1 &
+
+open-logs-frontend:
+	@echo "$(CYAN)Opening frontend logs in a new terminal...$(RESET)"
+	@$(OPEN_TERMINAL) "cd $(PROJECT_DIR) && make logs-frontend" >/dev/null 2>&1 &
+
 # Run both servers with live monitoring
 run-dev: check-deps
 	@echo "$(CYAN)$(BOLD)╔════════════════════════════════════════╗$(RESET)"
@@ -193,12 +220,37 @@ run-dev: check-deps
 	@# Start the backend server in background
 	@echo "$(CYAN)Starting backend server...$(RESET)"
 	@. $(VENV_DIR)/bin/activate && khoj -vv --anonymous-mode > $(TMP_DIR)/logs/backend.log 2>&1 & echo $$! > $(TMP_DIR)/backend.pid
-	@# Start the frontend server in background
+	@echo ""
+	
+	@# Simplified waiting for backend initialization (with pauses between each step)
+	@echo "$(YELLOW)Waiting for backend to initialize...$(RESET)"
+	@count=0; \
+	while [ ! -s $(TMP_DIR)/logs/backend.log ] && [ $$count -lt 30 ]; do \
+		sleep 1; \
+		count=$$((count+1)); \
+		if [ $$((count % 3)) -eq 0 ]; then \
+			echo "$(YELLOW)Still waiting for backend ($$count seconds)...$(RESET)"; \
+		fi; \
+	done
+	@echo "$(GREEN)Backend started successfully.$(RESET)"
+	
+	@# Start the frontend server in background only after backend is ready
 	@echo "$(CYAN)Starting frontend development server...$(RESET)"
 	@cd $(WEB_DIR) && yarn dev > $(TMP_DIR)/logs/frontend.log 2>&1 & echo $$! > $(TMP_DIR)/frontend.pid
 	@echo ""
-	@echo "$(YELLOW)Servers starting... Please wait.$(RESET)"
-	@sleep 3
+	
+	@# No animation, just a time counter for frontend initialization
+	@echo "$(YELLOW)Waiting for frontend to start (this may take up to 30 seconds)...$(RESET)"
+	@count=0; \
+	while [ $$count -lt 15 ]; do \
+		sleep 2; \
+		count=$$((count+1)); \
+		if [ $$((count % 5)) -eq 0 ]; then \
+			echo "$(YELLOW)Still waiting for frontend ($$((count*2)) seconds)...$(RESET)"; \
+		fi; \
+	done
+	@echo "$(GREEN)Frontend started successfully.$(RESET)"
+	
 	@echo ""
 	@echo "$(CYAN)$(BOLD)╔════════════════════════════════════════╗$(RESET)"
 	@echo "$(CYAN)$(BOLD)║     KHOJ DEVELOPMENT ENVIRONMENT       ║$(RESET)"
@@ -210,44 +262,48 @@ run-dev: check-deps
 	@echo "  $(DIM)• Backend API: http://127.0.0.1:42110$(RESET)"
 	@echo "  $(DIM)• Frontend UI: http://localhost:3000$(RESET)"
 	@echo ""
-	@echo "$(MAGENTA)$(BOLD)Commands:$(RESET)"
-	@echo "  $(DIM)• Run$(RESET) $(BOLD)make logs-backend$(RESET) $(DIM)in another terminal to see backend logs$(RESET)"
-	@echo "  $(DIM)• Run$(RESET) $(BOLD)make logs-frontend$(RESET) $(DIM)in another terminal to see frontend logs$(RESET)"
-	@echo "  $(DIM)• Run$(RESET) $(BOLD)make stop-servers$(RESET) $(DIM)to stop all servers$(RESET)"
+	@# Single static status display
+	@timestamp=$$(date +"%H:%M:%S")
+	@echo "$(CYAN)$(BOLD)╔════════════════════════════════════════╗$(RESET)"
+	@echo "$(CYAN)$(BOLD)║     KHOJ SERVERS STATUS MONITOR        ║$(RESET)"
+	@echo "$(CYAN)$(BOLD)╚════════════════════════════════════════╝$(RESET)"
 	@echo ""
-	@echo "$(YELLOW)$(BOLD)Starting monitoring loop. Press Ctrl+C to exit monitoring (servers will continue to run).$(RESET)"
+	@echo "$(YELLOW)Status as of: $$timestamp$(RESET)"
 	@echo ""
-	@# Start the monitoring loop
-	@while true; do \
-		clear; \
-		echo "$(CYAN)$(BOLD)╔════════════════════════════════════════╗$(RESET)"; \
-		echo "$(CYAN)$(BOLD)║     KHOJ SERVERS STATUS MONITOR        ║$(RESET)"; \
-		echo "$(CYAN)$(BOLD)╚════════════════════════════════════════╝$(RESET)"; \
-		echo ""; \
-		echo "$(BOLD)BACKEND SERVER:$(RESET)"; \
-		if pgrep -f "khoj -vv" > /dev/null; then \
-			echo "$(GREEN)$(BOLD)[RUNNING]$(RESET) Backend server is active"; \
-			echo ""; \
-			echo "$(BOLD)Last 10 lines of backend logs:$(RESET)"; \
-			tail -n 10 $(TMP_DIR)/logs/backend.log | sed 's/^/  /'; \
+	@echo "$(BOLD)BACKEND SERVER:$(RESET)"
+	@if pgrep -f "khoj -vv" > /dev/null; then \
+		echo "$(GREEN)$(BOLD)[RUNNING]$(RESET) Backend server is active"; \
+		if [ -s $(TMP_DIR)/logs/backend.log ]; then \
+			echo "$(BOLD)Latest logs:$(RESET)"; \
+			tail -n 3 $(TMP_DIR)/logs/backend.log | sed 's/^/  /'; \
 		else \
-			echo "$(RED)$(BOLD)[STOPPED]$(RESET) Backend server is not running"; \
+			echo "$(YELLOW)No logs yet.$(RESET)"; \
 		fi; \
-		echo ""; \
-		echo "$(BOLD)FRONTEND SERVER:$(RESET)"; \
-		if pgrep -f "yarn dev" > /dev/null; then \
-			echo "$(GREEN)$(BOLD)[RUNNING]$(RESET) Frontend server is active"; \
-			echo ""; \
-			echo "$(BOLD)Last 10 lines of frontend logs:$(RESET)"; \
-			tail -n 10 $(TMP_DIR)/logs/frontend.log | sed 's/^/  /'; \
+	else \
+		echo "$(RED)$(BOLD)[STOPPED]$(RESET) Backend server is not running"; \
+	fi
+	@echo ""
+	@echo "$(BOLD)FRONTEND SERVER:$(RESET)"
+	@if pgrep -f "yarn dev" > /dev/null; then \
+		echo "$(GREEN)$(BOLD)[RUNNING]$(RESET) Frontend server is active"; \
+		if [ -s $(TMP_DIR)/logs/frontend.log ]; then \
+			echo "$(BOLD)Latest logs:$(RESET)"; \
+			tail -n 3 $(TMP_DIR)/logs/frontend.log | sed 's/^/  /'; \
 		else \
-			echo "$(RED)$(BOLD)[STOPPED]$(RESET) Frontend server is not running"; \
+			echo "$(YELLOW)No logs yet.$(RESET)"; \
 		fi; \
-		echo ""; \
-		echo "$(YELLOW)Press Ctrl+C to exit monitoring (servers will continue to run)$(RESET)"; \
-		echo "$(YELLOW)Monitoring will refresh every 5 seconds...$(RESET)"; \
-		sleep 5; \
-	done
+	else \
+		echo "$(RED)$(BOLD)[STOPPED]$(RESET) Frontend server is not running"; \
+	fi
+	@echo ""
+	@echo "$(MAGENTA)$(BOLD)Commands to use in separate terminals:$(RESET)"
+	@echo "  $(DIM)• To view backend logs:$(RESET) $(BOLD)make logs-backend$(RESET)"
+	@echo "  $(DIM)• To view frontend logs:$(RESET) $(BOLD)make logs-frontend$(RESET)"
+	@echo "  $(DIM)• To stop all servers:$(RESET) $(BOLD)make stop-servers$(RESET)"
+	@echo ""
+	@echo "$(GREEN)Servers are running in the background. Press Ctrl+C to exit this view.$(RESET)"
+	@# Keep the terminal open without updates until user presses Ctrl+C
+	@sleep infinity || exit 0
 
 # Stop all running servers from run-dev
 stop-servers:
@@ -280,4 +336,8 @@ clean:
 	@-rm -rf $(WEB_DIR)/.next
 	@-rm -rf $(WEB_DIR)/node_modules/.cache
 	@-rm -rf $(TMP_DIR)
-	@echo "$(GREEN)Cleanup completed.$(RESET)" 
+	@echo "$(GREEN)Cleanup completed.$(RESET)"
+
+# Run with colors
+run-dev-color:
+	@$(MAKE) COLOR_SUPPORT=1 run-dev 
