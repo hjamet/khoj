@@ -52,3 +52,9 @@ src/interface/android/*.apk
 src/interface/android/*.apk.idsig
 src/interface/android/*.keystore
 src/interface/android/local.properties
+
+# Cursor
+.cursorrules
+
+# Python
+.python-version
