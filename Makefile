@@ -135,6 +135,7 @@ help:
 	@echo "                                3. Configure admin user if needed"
 	@echo "                                4. Start servers with continuous monitoring"
 	@echo "  $(YELLOW)make run-servers$(RESET)      - Start backend and frontend servers"
+	@echo "  $(YELLOW)make reset-all$(RESET)        - Reset all development servers and database"
 	@echo "  $(YELLOW)make monitor-servers$(RESET)  - Monitor running servers with status updates every 5 seconds"
 	@echo "  $(YELLOW)make logs-backend$(RESET)     - View backend server logs in real-time"
 	@echo "  $(YELLOW)make logs-frontend$(RESET)    - View frontend server logs in real-time"
@@ -466,7 +467,7 @@ run-servers: check-env
 	
 	@# Check if backend started successfully
 	@if ! curl -s http://localhost:42110/api/health > /dev/null 2>&1; then \
-		echo "$(ERROR_BADGE) Backend server failed to start properly. Check logs: make logs-backend"; \
+		echo "$(ERROR_BADGE) Backend server failed to start properly. Check logs: make logs-backend or $(TMP_DIR)/logs/backend.log"; \
 	else \
 		echo "$(OK_BADGE) Backend server started successfully"; \
 	fi
@@ -749,27 +750,67 @@ monitor-servers:
 reset-all:
 	@echo "$(CYAN)Completely resetting the installation...$(RESET)"
 	@echo "$(YELLOW)This will remove all data, configuration, and installed components.$(RESET)"
-	@echo "$(YELLOW)You will need to restart from scratch.$(RESET)"
+	@echo "$(RED)All data will be lost and you will need to start from scratch.$(RESET)"
+	@echo ""
+	@read -p "Are you sure you want to proceed? (y/n) " confirm; \
+	if [ "$$confirm" != "y" ]; then \
+		echo "$(YELLOW)Reset operation cancelled.$(RESET)"; \
+		exit 1; \
+	fi
+	@echo ""
 	
-	@echo "$(CYAN)Stopping all servers...$(RESET)"
-	@pkill -f "python -m khoj.main" 2>/dev/null || true
-	@pkill -f "next dev" 2>/dev/null || true
+	@echo "$(CYAN)Step 1/7: Stopping all running servers...$(RESET)"
+	@-pkill -f "python -m khoj.main" 2>/dev/null || echo "$(DIM)No backend server running$(RESET)"
+	@-pkill -f "next dev" 2>/dev/null || echo "$(DIM)No frontend server running$(RESET)"
+	@-pkill -f "yarn dev" 2>/dev/null || echo "$(DIM)No yarn dev process running$(RESET)"
+	@echo "$(GREEN)All servers stopped.$(RESET)"
+	@echo ""
 	
-	@echo "$(CYAN)Stopping PostgreSQL...$(RESET)"
-	@sudo service postgresql stop || true
+	@echo "$(CYAN)Step 2/7: Cleaning PostgreSQL database...$(RESET)"
+	@-sudo service postgresql start 2>/dev/null || echo "$(DIM)PostgreSQL service not found$(RESET)"
+	@-sudo -u postgres psql -c "DROP DATABASE IF EXISTS khoj;" 2>/dev/null || echo "$(DIM)Failed to drop khoj database, it may not exist$(RESET)"
+	@echo "$(GREEN)PostgreSQL database cleaned.$(RESET)"
+	@echo ""
 	
-	@echo "$(CYAN)Removing database...$(RESET)"
-	@sudo service postgresql start
-	@sudo -u postgres dropdb khoj 2>/dev/null || true
+	@echo "$(CYAN)Step 3/7: Removing configuration files...$(RESET)"
+	@-rm -f .env .env.tmp .env.back .env.*
+	@-rm -f .tmp/.env .tmp/.env.* 2>/dev/null || true
+	@echo "$(GREEN)Configuration files removed.$(RESET)"
+	@echo ""
 	
-	@echo "$(CYAN)Removing configuration files...$(RESET)"
-	@rm -f .env
+	@echo "$(CYAN)Step 4/7: Removing virtual environment...$(RESET)"
+	@-rm -rf $(VENV_DIR)
+	@echo "$(GREEN)Virtual environment removed.$(RESET)"
+	@echo ""
 	
-	@echo "$(CYAN)Removing installation files...$(RESET)"
-	@rm -rf $(VENV_DIR)
-	@rm -rf $(FRONTEND_DIR)/node_modules
-	@rm -rf $(FRONTEND_DIR)/.next
-	@rm -rf $(FRONTEND_DIR)/out
-	@rm -rf $(TMP_DIR)
+	@echo "$(CYAN)Step 5/7: Removing frontend build files...$(RESET)"
+	@-rm -rf $(FRONTEND_DIR)/node_modules
+	@-rm -rf $(FRONTEND_DIR)/.next
+	@-rm -rf $(FRONTEND_DIR)/out
+	@-rm -rf $(FRONTEND_DIR)/.cache
+	@-rm -rf $(FRONTEND_DIR)/yarn-error.log
+	@echo "$(GREEN)Frontend build files removed.$(RESET)"
+	@echo ""
 	
-	@echo "$(OK_BADGE) Reset completed. Run 'make run-dev' for a fresh installation" 
+	@echo "$(CYAN)Step 6/7: Removing temporary files and logs...$(RESET)"
+	@-rm -rf $(TMP_DIR)
+	@-rm -rf logs/
+	@-rm -rf .tmp/
+	@-rm -f *.log
+	@echo "$(GREEN)Temporary files and logs removed.$(RESET)"
+	@echo ""
+	
+	@echo "$(CYAN)Step 7/7: Removing any remaining application data...$(RESET)"
+	@-find . -name "*.pyc" -delete
+	@-find . -name "__pycache__" -type d -delete
+	@-rm -rf .pytest_cache
+	@-rm -rf build/
+	@-rm -rf dist/
+	@-rm -rf *.egg-info/
+	@-rm -rf .coverage
+	@-rm -rf htmlcov/
+	@echo "$(GREEN)Application data removed.$(RESET)"
+	@echo ""
+	
+	@echo "$(GREEN)$(BOLD)Reset completed successfully!$(RESET)"
+	@echo "$(YELLOW)Your system is now clean. Run 'make run-dev' for a fresh installation.$(RESET)" 
