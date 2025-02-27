@@ -28,6 +28,8 @@ ifeq ($(COLOR_SUPPORT),1)
 	BOLD = $(shell tput bold)
 	DIM = $(shell tput dim 2>/dev/null || echo "")
 	RESET = $(shell tput sgr0)
+	MOVE_UP = $(shell tput cuu1)
+	CLEAR_LINE = $(shell tput el)
 else
 	# No colors
 	CYAN :=
@@ -39,6 +41,8 @@ else
 	BOLD :=
 	DIM :=
 	RESET :=
+	MOVE_UP :=
+	CLEAR_LINE :=
 endif
 
 # Define badges for status messages
@@ -49,6 +53,35 @@ IDLE_BADGE := $(BLUE)$(BOLD)[IDLE]$(RESET)
 INFO_BADGE := $(CYAN)$(BOLD)[INFO]$(RESET)
 WARNING_BADGE := $(YELLOW)$(BOLD)[WARNING]$(RESET)
 QUESTION_BADGE := $(MAGENTA)$(BOLD)[?]$(RESET)
+
+# Log message functions to clean up output
+define log_info
+	@echo "$(INFO_BADGE) $(1)"
+endef
+
+define log_success
+	@echo "$(OK_BADGE) $(1)"
+endef
+
+define log_warning
+	@echo "$(WARNING_BADGE) $(1)"
+endef
+
+define log_error
+	@echo "$(ERROR_BADGE) $(1)" >&2
+endef
+
+define log_loading
+	@echo "$(LOADING_BADGE) $(1)"
+endef
+
+define log_temp
+	@echo -n "$(DIM)$(1)$(RESET)\r"
+endef
+
+define clear_last_line
+	@echo -n "$(MOVE_UP)$(CLEAR_LINE)"
+endef
 
 # Default database configuration
 DB_HOST := localhost
@@ -128,14 +161,13 @@ create-venv: check-python
 	@echo "$(CYAN)Creating virtual environment...$(RESET)"
 	@$(PYTHON) -m venv $(VENV_DIR) || (echo "$(RED)Error creating virtual environment$(RESET)" && exit 1)
 	@. $(VENV_DIR)/bin/activate && pip install --upgrade pip setuptools wheel
-	@. $(VENV_DIR)/bin/activate && pip install -e '.[dev]'
-	@. $(VENV_DIR)/bin/activate && pip install -e src/
+	@. $(VENV_DIR)/bin/activate && pip install -e . || (echo "$(RED)Error installing the project$(RESET)" && exit 1)
 	@echo "$(GREEN)Virtual environment created successfully.$(RESET)"
 
 # Install backend
 install-backend: create-venv
 	@echo "$(CYAN)Installing backend dependencies...$(RESET)"
-	@. $(VENV_DIR)/bin/activate && pip install -e '.[dev]' || (echo "$(RED)Error installing backend dependencies$(RESET)" && exit 1)
+	@. $(VENV_DIR)/bin/activate && pip install -e . || (echo "$(RED)Error installing backend dependencies$(RESET)" && exit 1)
 	@echo "$(GREEN)Backend installed successfully.$(RESET)"
 
 # Install frontend dependencies
@@ -170,54 +202,46 @@ setup-db:
 
 # Verify database access
 verify-db-access:
-	@echo "$(CYAN)Verifying database access...$(RESET)"
+	@echo "$(INFO_BADGE) Verifying database connection"
 	@mkdir -p $(TMP_DIR)
 	
-	@echo "$(YELLOW)Testing connection to PostgreSQL...$(RESET)"
+	@echo "Testing connection to PostgreSQL..."
 	@if ! sudo -u postgres psql -c "SELECT 1" > /dev/null 2>&1; then \
-		echo "$(RED)Error: Cannot connect to PostgreSQL server. Make sure it's running.$(RESET)"; \
-		echo "$(YELLOW)Attempting to start PostgreSQL...$(RESET)"; \
-		sudo service postgresql start || (echo "$(RED)Error starting PostgreSQL$(RESET)" && exit 1); \
+		echo "$(ERROR_BADGE) Cannot connect to PostgreSQL server. Attempting to start it..."; \
+		sudo service postgresql start || (echo "$(ERROR_BADGE) Failed to start PostgreSQL" && exit 1); \
 	fi
-	@echo "$(GREEN)PostgreSQL server is running.$(RESET)"
-	
-	@echo "$(YELLOW)Testing connection to khoj database...$(RESET)"
+	@echo "Testing connection to khoj database..."
 	@if ! sudo -u postgres psql -d khoj -c "SELECT 1" > /dev/null 2>&1; then \
-		echo "$(YELLOW)Cannot connect to khoj database. Attempting to create it...$(RESET)"; \
+		echo "$(WARNING_BADGE) Cannot connect to khoj database. Creating it..."; \
 		sudo -u postgres createdb khoj 2>/dev/null || \
-		(echo "$(RED)Error: Failed to create khoj database.$(RESET)" && exit 1); \
+		(echo "$(ERROR_BADGE) Failed to create khoj database" && exit 1); \
 	fi
-	@echo "$(GREEN)Connection to khoj database successful.$(RESET)"
-	
-	@echo "$(YELLOW)Checking pgvector extension...$(RESET)"
+	@echo "Checking pgvector extension..."
 	@if ! sudo -u postgres psql -d khoj -c "SELECT 1 FROM pg_extension WHERE extname = 'vector'" | grep -q 1; then \
-		echo "$(YELLOW)pgvector extension not installed. Attempting to install...$(RESET)"; \
+		echo "$(WARNING_BADGE) pgvector extension not installed. Installing..."; \
 		sudo -u postgres psql -d khoj -c "CREATE EXTENSION IF NOT EXISTS vector" || \
-		(echo "$(RED)Error: Failed to install pgvector extension.$(RESET)" && \
-		echo "$(YELLOW)Please install pgvector manually. See: https://github.com/pgvector/pgvector#installation$(RESET)" && \
+		(echo "$(ERROR_BADGE) Failed to install pgvector extension" && \
+		echo "$(YELLOW)Please install pgvector manually: https://github.com/pgvector/pgvector#installation$(RESET)" && \
 		exit 1); \
 	fi
-	@echo "$(GREEN)pgvector extension is properly installed.$(RESET)"
-	
-	@echo "$(OK_BADGE) Database configuration verified successfully.$(RESET)"
+	@echo "$(OK_BADGE) Database configuration verified"
 
 # Check for API keys
 check-api-keys:
-	@echo "$(CYAN)Checking for API provider keys...$(RESET)"
+	@echo "$(INFO_BADGE) Checking API configuration"
 	@mkdir -p $(TMP_DIR)
 	
-	@echo "$(YELLOW)Looking for existing API keys...$(RESET)"
+	@echo "Looking for existing API keys..."
 	@if [ -f "$(PROJECT_DIR)/.env" ] && grep -q "OPENAI_API_KEY" "$(PROJECT_DIR)/.env"; then \
-		echo "$(GREEN)OpenAI API key found in .env file.$(RESET)"; \
 		KEY_VALUE=$$(grep "OPENAI_API_KEY" "$(PROJECT_DIR)/.env" | cut -d= -f2); \
 		if [ -n "$$KEY_VALUE" ]; then \
-			echo "$(GREEN)OpenAI API key is configured.$(RESET)"; \
+			echo "$(OK_BADGE) OpenAI API key is configured"; \
 		else \
-			echo "$(YELLOW)OpenAI API key is empty in .env file.$(RESET)"; \
+			echo "$(WARNING_BADGE) OpenAI API key is empty in .env file"; \
 			$(MAKE) setup-api-keys; \
 		fi; \
 	else \
-		echo "$(YELLOW)No API keys found in .env file.$(RESET)"; \
+		echo "$(WARNING_BADGE) No API keys found in .env file"; \
 		$(MAKE) setup-api-keys; \
 	fi
 
@@ -323,27 +347,29 @@ dev:
 
 # Check dependencies
 check-deps:
-	@echo "$(CYAN)Checking dependencies...$(RESET)"
+	@echo "$(INFO_BADGE) Checking dependencies"
 	@# Check if virtual environment exists
 	@if [ ! -d "$(VENV_DIR)" ]; then \
-		echo "$(RED)Virtual environment not found. Installing project...$(RESET)"; \
+		echo "$(WARNING_BADGE) Virtual environment not found. Installing project..."; \
 		$(MAKE) install; \
 	fi
 	@# Check PostgreSQL
+	@echo "Checking PostgreSQL status..."
 	@if ! sudo service postgresql status >/dev/null 2>&1; then \
-		echo "$(YELLOW)PostgreSQL is not running. Starting PostgreSQL...$(RESET)"; \
-		sudo service postgresql start || (echo "$(RED)Failed to start PostgreSQL. Setting up database...$(RESET)" && $(MAKE) setup-db); \
+		echo "$(WARNING_BADGE) PostgreSQL is not running. Starting it..."; \
+		sudo service postgresql start || (echo "$(ERROR_BADGE) Failed to start PostgreSQL. Setting up database..." && $(MAKE) setup-db); \
 	fi
 	@# Verify database access
-	@$(MAKE) verify-db-access || (echo "$(WARNING_BADGE) Database configuration issue detected. Attempting to fix...$(RESET)" && $(MAKE) setup-db)
+	@$(MAKE) verify-db-access || (echo "$(WARNING_BADGE) Database configuration issue detected. Fixing..." && $(MAKE) setup-db)
 	@# Check API keys
-	@$(MAKE) check-api-keys || echo "$(WARNING_BADGE) Continuing with anonymous mode.$(RESET)"
+	@$(MAKE) check-api-keys || echo "$(WARNING_BADGE) Continuing with anonymous mode"
 	@# Check frontend dependencies
+	@echo "Checking frontend dependencies..."
 	@if [ ! -d "$(WEB_DIR)/node_modules" ]; then \
-		echo "$(RED)Frontend dependencies not installed. Installing...$(RESET)"; \
+		echo "$(WARNING_BADGE) Frontend dependencies not installed. Installing..."; \
 		$(MAKE) install-frontend; \
 	fi
-	@echo "$(GREEN)All dependencies are properly checked.$(RESET)"
+	@echo "$(OK_BADGE) All dependencies checked"
 
 # Check if servers are running
 check-server-status:
@@ -410,19 +436,19 @@ initialize:
 
 # Run only the servers (without interactive initialization)
 run-servers: check-env
-	@echo "$(CYAN)Starting Khoj servers...$(RESET)"
+	@echo "$(INFO_BADGE) Starting Khoj servers"
 	
 	@# Stop any existing servers to avoid port conflicts
 	@$(MAKE) stop-servers > /dev/null 2>&1 || true
 	
 	@# Make sure KHOJ_DISABLE_EMBEDDINGS is set in .env
 	@if ! grep -q "KHOJ_DISABLE_EMBEDDINGS" .env; then \
-		echo "$(YELLOW)Adding KHOJ_DISABLE_EMBEDDINGS=true to .env...$(RESET)"; \
+		echo -n "$(DIM)Adding KHOJ_DISABLE_EMBEDDINGS=true to .env...$(RESET)\r"; \
 		echo "KHOJ_DISABLE_EMBEDDINGS=true" >> .env; \
 	fi
 	
 	@# Start backend server in background
-	@echo "$(LOADING_BADGE) Starting backend server...$(RESET)"
+	@echo "$(LOADING_BADGE) Starting backend server"
 	@mkdir -p $(TMP_DIR)/logs
 	@. .venv/bin/activate && \
 	  export $$(grep -v '^#' $(PROJECT_DIR)/.env | xargs) && \
@@ -434,64 +460,62 @@ run-servers: check-env
 	  export SENTENCE_TRANSFORMERS_HOME=/tmp/non-existent-dir && \
 	  export HF_HOME=/tmp/non-existent-dir && \
 	  python -m khoj.main --host 127.0.0.1 --port 42110 --anonymous-mode --non-interactive > $(TMP_DIR)/logs/backend.log 2>&1 &
-	@echo "$(INFO_BADGE) Backend server starting at http://localhost:42110$(RESET)"
-	@echo "$(LOADING_BADGE) Waiting for backend to initialize...$(RESET)"
+	@echo "$(INFO_BADGE) Backend server starting at http://localhost:42110"
+	@echo "$(LOADING_BADGE) Waiting for backend to initialize"
 	@sleep 5
 	
 	@# Check if backend started successfully
 	@if ! curl -s http://localhost:42110/api/health > /dev/null 2>&1; then \
-		echo "$(ERROR_BADGE) Backend server failed to start properly. Check logs: make logs-backend$(RESET)"; \
+		echo "$(ERROR_BADGE) Backend server failed to start properly. Check logs: make logs-backend"; \
 	else \
-		echo "$(OK_BADGE) Backend server started successfully.$(RESET)"; \
+		echo "$(OK_BADGE) Backend server started successfully"; \
 	fi
 	
 	@# Create admin user if needed
 	@if ! grep -q "KHOJ_SKIP_ADMIN_INIT=true" .env || [ "$$(grep KHOJ_SKIP_ADMIN_INIT .env | cut -d '=' -f2)" != "true" ]; then \
-		echo "$(LOADING_BADGE) Creating admin user if needed...$(RESET)"; \
+		echo "$(LOADING_BADGE) Creating admin user if needed"; \
 		. .venv/bin/activate && \
 		export $$(grep -v '^#' $(PROJECT_DIR)/.env | xargs) && \
-		python -c "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.filter(email='$$(grep KHOJ_ADMIN_EMAIL .env | cut -d '=' -f2)').exists() or User.objects.create_superuser('$$(grep KHOJ_ADMIN_EMAIL .env | cut -d '=' -f2)', '$$(grep KHOJ_ADMIN_PASSWORD .env | cut -d '=' -f2)')" 2>/dev/null || echo "$(INFO_BADGE) Admin user creation will be handled by the app$(RESET)"; \
+		python -c "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.filter(email='$$(grep KHOJ_ADMIN_EMAIL .env | cut -d '=' -f2)').exists() or User.objects.create_superuser('$$(grep KHOJ_ADMIN_EMAIL .env | cut -d '=' -f2)', '$$(grep KHOJ_ADMIN_PASSWORD .env | cut -d '=' -f2)')" 2>/dev/null || echo "$(INFO_BADGE) Admin user creation will be handled by the app"; \
 	else \
-		echo "$(INFO_BADGE) Skipping admin user initialization as KHOJ_SKIP_ADMIN_INIT=true$(RESET)"; \
+		echo "$(INFO_BADGE) Skipping admin user initialization as KHOJ_SKIP_ADMIN_INIT=true"; \
 	fi
 	
 	@# Start frontend server in background
-	@echo "$(LOADING_BADGE) Starting frontend server...$(RESET)"
+	@echo "$(LOADING_BADGE) Starting frontend server"
 	@mkdir -p $(TMP_DIR)/logs
 	@cd $(FRONTEND_DIR) && PORT=$(FRONTEND_PORT) yarn dev > $(TMP_DIR)/logs/frontend.log 2>&1 &
-	@echo "$(INFO_BADGE) Frontend server starting at http://localhost:$(FRONTEND_PORT)$(RESET)"
-	@echo "$(LOADING_BADGE) Waiting for frontend to initialize...$(RESET)"
+	@echo "$(INFO_BADGE) Frontend server starting at http://localhost:$(FRONTEND_PORT)"
+	@echo "$(LOADING_BADGE) Waiting for frontend to initialize"
 	@sleep 5
 	
 	@# Check if frontend started successfully
 	@if ! curl -s http://localhost:$(FRONTEND_PORT) > /dev/null 2>&1; then \
-		echo "$(WARNING_BADGE) Frontend server might not have started properly. Trying alternate port...$(RESET)"; \
+		echo "$(WARNING_BADGE) Frontend server might not have started properly. Trying alternate ports..."; \
 		for port in 3001 3002 3003; do \
 			if curl -s http://localhost:$$port > /dev/null 2>&1; then \
-				echo "$(OK_BADGE) Frontend server started on port $$port instead of $(FRONTEND_PORT).$(RESET)"; \
+				echo "$(OK_BADGE) Frontend server started on port $$port instead of $(FRONTEND_PORT)"; \
 				break; \
 			fi; \
 		done; \
 	else \
-		echo "$(OK_BADGE) Frontend server started successfully on port $(FRONTEND_PORT).$(RESET)"; \
+		echo "$(OK_BADGE) Frontend server started successfully on port $(FRONTEND_PORT)"; \
 	fi
 	
-	@echo "$(OK_BADGE) Both servers are now running.$(RESET)"
-	@echo "$(INFO_BADGE) Backend API: http://localhost:42110$(RESET)"
-	@echo "$(INFO_BADGE) Frontend UI: http://localhost:$(FRONTEND_PORT) (check other ports if unavailable: 3001, 3002)$(RESET)"
-	@echo "$(INFO_BADGE) Starting server monitoring...$(RESET)"
+	@echo "$(OK_BADGE) Both servers are now running"
+	@echo "$(INFO_BADGE) Backend API: http://localhost:42110"
+	@echo "$(INFO_BADGE) Frontend UI: http://localhost:$(FRONTEND_PORT) (check other ports if unavailable: 3001, 3002)"
+	@echo "$(INFO_BADGE) Starting server monitoring"
 	@$(MAKE) monitor-servers
 
 # Modify run-dev to run the interactive initialization first
 run-dev: check-deps
-	@echo "$(CYAN)Starting development environment...$(RESET)"
-	@echo "$(YELLOW)Following the specified setup sequence:$(RESET)"
+	@echo "$(INFO_BADGE) Starting development environment"
 	
-	@echo "$(CYAN)Step 1: Checking dependencies...$(RESET)"
-	@# Dependencies are checked by check-deps dependency
+	@echo "$(INFO_BADGE) Step 1: Checking dependencies"
 	@# Ensure .env file exists with all necessary values
 	@if [ ! -f ".env" ]; then \
-		echo "$(YELLOW)Creating .env file with default settings...$(RESET)"; \
+		echo -n "$(DIM)Creating .env file with default settings...$(RESET)\r"; \
 		echo "POSTGRES_PASSWORD=postgres" > .env; \
 		echo "POSTGRES_USER=postgres" >> .env; \
 		echo "POSTGRES_DB=khoj" >> .env; \
@@ -508,7 +532,7 @@ run-dev: check-deps
 		echo "KHOJ_SKIP_ADMIN_INIT=true" >> .env; \
 	else \
 		# Ensure all required variables are present \
-		echo "$(YELLOW)Checking for required environment variables...$(RESET)"; \
+		echo -n "$(DIM)Checking for required environment variables...$(RESET)\r"; \
 		for VAR in POSTGRES_PASSWORD POSTGRES_USER POSTGRES_DB POSTGRES_HOST POSTGRES_PORT KHOJ_ANONYMOUS_MODE KHOJ_DISABLE_EMBEDDINGS KHOJ_DISABLE_MODELS KHOJ_SKIP_ADMIN_INIT; do \
 			if ! grep -q "$$VAR" .env; then \
 				case $$VAR in \
@@ -522,48 +546,47 @@ run-dev: check-deps
 					KHOJ_DISABLE_MODELS) echo "$$VAR=true" >> .env ;; \
 					KHOJ_SKIP_ADMIN_INIT) echo "$$VAR=true" >> .env ;; \
 				esac; \
-				echo "$(YELLOW)Added missing variable: $$VAR$(RESET)"; \
 			fi; \
 		done; \
 	fi
 	
-	@echo "$(CYAN)Step 2: Setting up PostgreSQL and database...$(RESET)"
+	@echo "$(INFO_BADGE) Step 2: Setting up PostgreSQL and database"
 	@$(MAKE) verify-db-access || $(MAKE) setup-db
 	
-	@echo "$(CYAN)Step 3: Checking for user configuration...$(RESET)"
+	@echo "$(INFO_BADGE) Step 3: Checking for user configuration"
 	@# Make sure environment variables are set for offline mode
 	@if ! grep -q "TRANSFORMERS_OFFLINE" .env; then \
-		echo "$(YELLOW)Adding offline mode settings to .env...$(RESET)"; \
+		echo -n "$(DIM)Adding offline mode settings to .env...$(RESET)\r"; \
 		echo "TRANSFORMERS_OFFLINE=1" >> .env; \
 		echo "HF_HUB_OFFLINE=1" >> .env; \
 	fi
 	
 	@# Check if admin setup should be skipped
 	@if grep -q "KHOJ_SKIP_ADMIN_INIT=true" .env; then \
-		echo "$(GREEN)Skipping admin setup as KHOJ_SKIP_ADMIN_INIT is set to true.$(RESET)"; \
+		echo "$(OK_BADGE) Skipping admin setup as KHOJ_SKIP_ADMIN_INIT is set to true"; \
 	elif grep -q "KHOJ_ADMIN_EMAIL" .env && grep -q "KHOJ_ADMIN_PASSWORD" .env; then \
 		EMAIL=$$(grep KHOJ_ADMIN_EMAIL .env | cut -d '=' -f2); \
 		PASS=$$(grep KHOJ_ADMIN_PASSWORD .env | cut -d '=' -f2); \
 		if [ "$$EMAIL" = "admin@example.com" ] && [ "$$PASS" = "adminpassword" ]; then \
-			echo "$(YELLOW)Default admin user detected. Interactive setup recommended.$(RESET)"; \
+			echo "$(WARNING_BADGE) Default admin user detected. Interactive setup recommended"; \
 			read -p "Do you want to set up a custom admin user and API key? (y/n) " answer; \
 			if [ "$$answer" = "y" ]; then \
 				$(MAKE) run-interactive; \
-				echo "$(GREEN)Configuration completed. Starting servers...$(RESET)"; \
+				echo "$(OK_BADGE) Configuration completed. Starting servers"; \
 			else \
-				echo "$(YELLOW)Keeping default admin credentials.$(RESET)"; \
+				echo "$(WARNING_BADGE) Keeping default admin credentials"; \
 				echo "KHOJ_SKIP_ADMIN_INIT=true" >> .env; \
 			fi; \
 		else \
-			echo "$(GREEN)Admin user already configured.$(RESET)"; \
+			echo "$(OK_BADGE) Admin user already configured"; \
 		fi; \
 	else \
-		echo "$(YELLOW)Admin user not configured. Running setup...$(RESET)"; \
+		echo "$(WARNING_BADGE) Admin user not configured. Running setup"; \
 		$(MAKE) run-interactive; \
-		echo "$(GREEN)Configuration completed. Starting servers...$(RESET)"; \
+		echo "$(OK_BADGE) Configuration completed. Starting servers"; \
 	fi
 	
-	@echo "$(CYAN)Step 4: Starting servers and monitoring...$(RESET)"
+	@echo "$(INFO_BADGE) Step 4: Starting servers and monitoring"
 	@$(MAKE) run-servers
 
 run-interactive:
@@ -721,3 +744,32 @@ monitor-servers:
 		echo ""; \
 		sleep 5; \
 	done 
+
+# Reset all (complete cleanup)
+reset-all:
+	@echo "$(CYAN)Completely resetting the installation...$(RESET)"
+	@echo "$(YELLOW)This will remove all data, configuration, and installed components.$(RESET)"
+	@echo "$(YELLOW)You will need to restart from scratch.$(RESET)"
+	
+	@echo "$(CYAN)Stopping all servers...$(RESET)"
+	@pkill -f "python -m khoj.main" 2>/dev/null || true
+	@pkill -f "next dev" 2>/dev/null || true
+	
+	@echo "$(CYAN)Stopping PostgreSQL...$(RESET)"
+	@sudo service postgresql stop || true
+	
+	@echo "$(CYAN)Removing database...$(RESET)"
+	@sudo service postgresql start
+	@sudo -u postgres dropdb khoj 2>/dev/null || true
+	
+	@echo "$(CYAN)Removing configuration files...$(RESET)"
+	@rm -f .env
+	
+	@echo "$(CYAN)Removing installation files...$(RESET)"
+	@rm -rf $(VENV_DIR)
+	@rm -rf $(FRONTEND_DIR)/node_modules
+	@rm -rf $(FRONTEND_DIR)/.next
+	@rm -rf $(FRONTEND_DIR)/out
+	@rm -rf $(TMP_DIR)
+	
+	@echo "$(OK_BADGE) Reset completed. Run 'make run-dev' for a fresh installation" 
