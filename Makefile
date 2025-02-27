@@ -113,7 +113,7 @@ else
 endif
 
 # Main targets
-.PHONY: all install setup-db build-frontend run-backend run-frontend-dev dev run-dev run-dev-color check-deps logs-backend logs-frontend stop-servers clean help verify-db-access check-api-keys setup-api-keys initialize stop-dev check-env check-server-status monitor-servers
+.PHONY: all install setup-db build-frontend run-backend run-frontend-dev dev run-dev run-dev-color check-deps logs-backend logs-frontend stop-servers clean help verify-db-access check-api-keys setup-api-keys initialize stop-dev check-env check-server-status monitor-servers admin-login
 
 all: help
 
@@ -134,6 +134,7 @@ help:
 	@echo "                                2. Set up PostgreSQL and database"
 	@echo "                                3. Configure admin user if needed"
 	@echo "                                4. Start servers with continuous monitoring"
+	@echo "  $(YELLOW)make admin-login$(RESET)      - Generate admin login and magic links"
 	@echo "  $(YELLOW)make run-servers$(RESET)      - Start backend and frontend servers"
 	@echo "  $(YELLOW)make reset-all$(RESET)        - Reset all development servers and database"
 	@echo "  $(YELLOW)make monitor-servers$(RESET)  - Monitor running servers with status updates every 5 seconds"
@@ -148,6 +149,7 @@ help:
 	@echo "  2. make setup-db"
 	@echo "  3. make check-api-keys"
 	@echo "  4. make run-dev"
+	@echo "  5. make admin-login (if needed)"
 
 # Check if python3 is available
 check-python:
@@ -435,6 +437,105 @@ initialize:
 	@echo "$(CYAN)To launch servers in normal mode, run:$(RESET)"
 	@echo "make run-servers"
 
+# Modify run-dev to run the interactive initialization first
+run-dev: check-deps
+	@echo "$(INFO_BADGE) Starting development environment"
+	
+	@echo "$(INFO_BADGE) Step 1: Checking dependencies"
+	@# Ensure .env file exists with all necessary values
+	@if [ ! -f ".env" ]; then \
+		echo -n "$(DIM)Creating .env file with default settings...$(RESET)\r"; \
+		echo "POSTGRES_PASSWORD=postgres" > .env; \
+		echo "POSTGRES_USER=postgres" >> .env; \
+		echo "POSTGRES_DB=khoj" >> .env; \
+		echo "POSTGRES_HOST=localhost" >> .env; \
+		echo "POSTGRES_PORT=5432" >> .env; \
+		echo "KHOJ_ANONYMOUS_MODE=false" >> .env; \
+		echo "KHOJ_ENABLE_PASSWORD_LOGIN=true" >> .env; \
+		echo "DEFAULT_MODEL=gpt-4o-mini" >> .env; \
+		echo "KHOJ_ADMIN_EMAIL=admin@example.com" >> .env; \
+		echo "KHOJ_ADMIN_PASSWORD=adminpassword" >> .env; \
+		echo "TRANSFORMERS_OFFLINE=1" >> .env; \
+		echo "HF_HUB_OFFLINE=1" >> .env; \
+		echo "KHOJ_DISABLE_EMBEDDINGS=true" >> .env; \
+		echo "KHOJ_DISABLE_MODELS=true" >> .env; \
+		echo "KHOJ_SKIP_ADMIN_INIT=false" >> .env; \
+	else \
+		# Ensure all required variables are present \
+		echo -n "$(DIM)Checking for required environment variables...$(RESET)\r"; \
+		for VAR in POSTGRES_PASSWORD POSTGRES_USER POSTGRES_DB POSTGRES_HOST POSTGRES_PORT KHOJ_DISABLE_EMBEDDINGS KHOJ_DISABLE_MODELS; do \
+			if ! grep -q "$$VAR" .env; then \
+				case $$VAR in \
+					POSTGRES_PASSWORD) echo "$$VAR=postgres" >> .env ;; \
+					POSTGRES_USER) echo "$$VAR=postgres" >> .env ;; \
+					POSTGRES_DB) echo "$$VAR=khoj" >> .env ;; \
+					POSTGRES_HOST) echo "$$VAR=localhost" >> .env ;; \
+					POSTGRES_PORT) echo "$$VAR=5432" >> .env ;; \
+					KHOJ_DISABLE_EMBEDDINGS) echo "$$VAR=true" >> .env ;; \
+					KHOJ_DISABLE_MODELS) echo "$$VAR=true" >> .env ;; \
+				esac; \
+			fi; \
+		done; \
+		# Ensure password login is enabled \
+		if ! grep -q "KHOJ_ENABLE_PASSWORD_LOGIN" .env; then \
+			echo "KHOJ_ENABLE_PASSWORD_LOGIN=true" >> .env; \
+		else \
+			sed -i 's/KHOJ_ENABLE_PASSWORD_LOGIN=.*/KHOJ_ENABLE_PASSWORD_LOGIN=true/' .env; \
+		fi; \
+		# Set anonymous mode to false to enable chat functionality \
+		if grep -q "KHOJ_ANONYMOUS_MODE" .env; then \
+			sed -i 's/KHOJ_ANONYMOUS_MODE=.*/KHOJ_ANONYMOUS_MODE=false/' .env; \
+		else \
+			echo "KHOJ_ANONYMOUS_MODE=false" >> .env; \
+		fi; \
+		# Set KHOJ_SKIP_ADMIN_INIT to false to ensure user creation \
+		if grep -q "KHOJ_SKIP_ADMIN_INIT" .env; then \
+			sed -i 's/KHOJ_SKIP_ADMIN_INIT=.*/KHOJ_SKIP_ADMIN_INIT=false/' .env; \
+		else \
+			echo "KHOJ_SKIP_ADMIN_INIT=false" >> .env; \
+		fi; \
+		# Update admin credentials if they exist \
+		if grep -q "KHOJ_ADMIN_EMAIL" .env; then \
+			sed -i 's/KHOJ_ADMIN_EMAIL=.*/KHOJ_ADMIN_EMAIL=admin@example.com/' .env; \
+		else \
+			echo "KHOJ_ADMIN_EMAIL=admin@example.com" >> .env; \
+		fi
+		if grep -q "KHOJ_ADMIN_PASSWORD" .env; then \
+			sed -i 's/KHOJ_ADMIN_PASSWORD=.*/KHOJ_ADMIN_PASSWORD=adminpassword/' .env; \
+		else \
+			echo "KHOJ_ADMIN_PASSWORD=adminpassword" >> .env; \
+		fi; \
+	fi
+	
+	@echo "$(INFO_BADGE) Step 2: Setting up PostgreSQL and database"
+	@$(MAKE) verify-db-access || $(MAKE) setup-db
+	
+	@echo "$(INFO_BADGE) Step 3: Configuring development user"
+	@# Make sure environment variables are set for offline mode
+	@if ! grep -q "TRANSFORMERS_OFFLINE" .env; then \
+		echo -n "$(DIM)Adding offline mode settings to .env...$(RESET)\r"; \
+		echo "TRANSFORMERS_OFFLINE=1" >> .env; \
+		echo "HF_HUB_OFFLINE=1" >> .env; \
+	fi
+	
+	@# Ensure we have development user credentials
+	@if ! grep -q "KHOJ_ADMIN_EMAIL" .env; then \
+		echo "KHOJ_ADMIN_EMAIL=admin@example.com" >> .env; \
+	fi
+	@if ! grep -q "KHOJ_ADMIN_PASSWORD" .env; then \
+		echo "KHOJ_ADMIN_PASSWORD=adminpassword" >> .env; \
+	fi
+	
+	@echo "$(INFO_BADGE) Step 4: Creating development database user"
+	@sudo service postgresql restart || true
+	@sleep 2
+	@sudo -u postgres psql -d khoj -c "DROP DATABASE IF EXISTS khoj;" 2>/dev/null || echo "$(DIM)Database may not exist yet$(RESET)"
+	@sudo -u postgres createdb khoj 2>/dev/null || echo "$(DIM)Database may already exist$(RESET)"
+	@echo "$(OK_BADGE) Database prepared for user creation"
+	
+	@echo "$(INFO_BADGE) Step 5: Starting servers and monitoring"
+	@$(MAKE) run-servers
+
 # Run only the servers (without interactive initialization)
 run-servers: check-env
 	@echo "$(INFO_BADGE) Starting Khoj servers"
@@ -442,10 +543,25 @@ run-servers: check-env
 	@# Stop any existing servers to avoid port conflicts
 	@$(MAKE) stop-servers > /dev/null 2>&1 || true
 	
-	@# Make sure KHOJ_DISABLE_EMBEDDINGS is set in .env
-	@if ! grep -q "KHOJ_DISABLE_EMBEDDINGS" .env; then \
-		echo -n "$(DIM)Adding KHOJ_DISABLE_EMBEDDINGS=true to .env...$(RESET)\r"; \
-		echo "KHOJ_DISABLE_EMBEDDINGS=true" >> .env; \
+	@# Make sure development settings are correct in .env
+	@if grep -q "KHOJ_ANONYMOUS_MODE" .env; then \
+		sed -i 's/KHOJ_ANONYMOUS_MODE=.*/KHOJ_ANONYMOUS_MODE=false/' .env; \
+	else \
+		echo "KHOJ_ANONYMOUS_MODE=false" >> .env; \
+	fi
+	
+	@# Enable password login for development
+	@if grep -q "KHOJ_ENABLE_PASSWORD_LOGIN" .env; then \
+		sed -i 's/KHOJ_ENABLE_PASSWORD_LOGIN=.*/KHOJ_ENABLE_PASSWORD_LOGIN=true/' .env; \
+	else \
+		echo "KHOJ_ENABLE_PASSWORD_LOGIN=true" >> .env; \
+	fi
+	
+	@# Set KHOJ_SKIP_ADMIN_INIT to false to ensure user creation
+	@if grep -q "KHOJ_SKIP_ADMIN_INIT" .env; then \
+		sed -i 's/KHOJ_SKIP_ADMIN_INIT=.*/KHOJ_SKIP_ADMIN_INIT=false/' .env; \
+	else \
+		echo "KHOJ_SKIP_ADMIN_INIT=false" >> .env; \
 	fi
 	
 	@# Start backend server in background
@@ -455,31 +571,20 @@ run-servers: check-env
 	  export $$(grep -v '^#' $(PROJECT_DIR)/.env | xargs) && \
 	  export TRANSFORMERS_OFFLINE=1 && \
 	  export HF_HUB_OFFLINE=1 && \
-	  export KHOJ_SKIP_ADMIN_INIT=true && \
 	  export KHOJ_DISABLE_EMBEDDINGS=true && \
 	  export KHOJ_DISABLE_MODELS=true && \
 	  export SENTENCE_TRANSFORMERS_HOME=/tmp/non-existent-dir && \
 	  export HF_HOME=/tmp/non-existent-dir && \
-	  python -m khoj.main --host 127.0.0.1 --port 42110 --anonymous-mode --non-interactive > $(TMP_DIR)/logs/backend.log 2>&1 &
+	  python -m khoj.main --host 127.0.0.1 --port 42110 > $(TMP_DIR)/logs/backend.log 2>&1 &
 	@echo "$(INFO_BADGE) Backend server starting at http://localhost:42110"
 	@echo "$(LOADING_BADGE) Waiting for backend to initialize"
-	@sleep 5
+	@sleep 10
 	
 	@# Check if backend started successfully
 	@if ! curl -s http://localhost:42110/api/health > /dev/null 2>&1; then \
 		echo "$(ERROR_BADGE) Backend server failed to start properly. Check logs: make logs-backend or $(TMP_DIR)/logs/backend.log"; \
 	else \
 		echo "$(OK_BADGE) Backend server started successfully"; \
-	fi
-	
-	@# Create admin user if needed
-	@if ! grep -q "KHOJ_SKIP_ADMIN_INIT=true" .env || [ "$$(grep KHOJ_SKIP_ADMIN_INIT .env | cut -d '=' -f2)" != "true" ]; then \
-		echo "$(LOADING_BADGE) Creating admin user if needed"; \
-		. .venv/bin/activate && \
-		export $$(grep -v '^#' $(PROJECT_DIR)/.env | xargs) && \
-		python -c "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.filter(email='$$(grep KHOJ_ADMIN_EMAIL .env | cut -d '=' -f2)').exists() or User.objects.create_superuser('$$(grep KHOJ_ADMIN_EMAIL .env | cut -d '=' -f2)', '$$(grep KHOJ_ADMIN_PASSWORD .env | cut -d '=' -f2)')" 2>/dev/null || echo "$(INFO_BADGE) Admin user creation will be handled by the app"; \
-	else \
-		echo "$(INFO_BADGE) Skipping admin user initialization as KHOJ_SKIP_ADMIN_INIT=true"; \
 	fi
 	
 	@# Start frontend server in background
@@ -506,126 +611,36 @@ run-servers: check-env
 	@echo "$(OK_BADGE) Both servers are now running"
 	@echo "$(INFO_BADGE) Backend API: http://localhost:42110"
 	@echo "$(INFO_BADGE) Frontend UI: http://localhost:$(FRONTEND_PORT) (check other ports if unavailable: 3001, 3002)"
+
+	@# Generate magic login link for easy development access
+	@echo "$(INFO_BADGE) Generating magic login link..."
+	@sleep 3  # Give more time for server initialization
+	@. .venv/bin/activate && \
+	python -c "import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'khoj.app.settings'); import django; django.setup(); \
+	from django.contrib.auth import get_user_model; import uuid; \
+	User = get_user_model(); \
+	user, created = User.objects.get_or_create(email='admin@example.com', \
+	defaults={'username': 'admin@example.com', 'is_active': True, 'is_staff': True, 'is_superuser': True, 'email_verification_code': str(uuid.uuid4())[:6]}); \
+	if not created: \
+		import uuid; \
+		user.email_verification_code = str(uuid.uuid4())[:6]; \
+		user.is_active = True; \
+		user.is_staff = True; \
+		user.is_superuser = True; \
+		user.save(); \
+	from datetime import datetime, timedelta; \
+	from django.utils.timezone import make_aware; \
+	user.email_verification_code_expiry = make_aware(datetime.now() + timedelta(days=1)); \
+	user.verified_email = True; \
+	user.save(); \
+	print(f'$(CYAN)$(BOLD)• Auto-login: http://localhost:42110/auth/magic?code={user.email_verification_code}&email=admin@example.com$(RESET)')" \
+	2>/dev/null || echo "$(WARNING_BADGE) Could not generate magic login link. Use the login page manually."
+
+	@echo "$(INFO_BADGE) Development login credentials:"
+	@echo "$(INFO_BADGE)   Email: $$(grep KHOJ_ADMIN_EMAIL .env | cut -d '=' -f2)"
+	@echo "$(INFO_BADGE)   Password: $$(grep KHOJ_ADMIN_PASSWORD .env | cut -d '=' -f2)"
 	@echo "$(INFO_BADGE) Starting server monitoring"
 	@$(MAKE) monitor-servers
-
-# Modify run-dev to run the interactive initialization first
-run-dev: check-deps
-	@echo "$(INFO_BADGE) Starting development environment"
-	
-	@echo "$(INFO_BADGE) Step 1: Checking dependencies"
-	@# Ensure .env file exists with all necessary values
-	@if [ ! -f ".env" ]; then \
-		echo -n "$(DIM)Creating .env file with default settings...$(RESET)\r"; \
-		echo "POSTGRES_PASSWORD=postgres" > .env; \
-		echo "POSTGRES_USER=postgres" >> .env; \
-		echo "POSTGRES_DB=khoj" >> .env; \
-		echo "POSTGRES_HOST=localhost" >> .env; \
-		echo "POSTGRES_PORT=5432" >> .env; \
-		echo "KHOJ_ANONYMOUS_MODE=true" >> .env; \
-		echo "DEFAULT_MODEL=gpt-4o-mini" >> .env; \
-		echo "KHOJ_ADMIN_EMAIL=admin@example.com" >> .env; \
-		echo "KHOJ_ADMIN_PASSWORD=adminpassword" >> .env; \
-		echo "TRANSFORMERS_OFFLINE=1" >> .env; \
-		echo "HF_HUB_OFFLINE=1" >> .env; \
-		echo "KHOJ_DISABLE_EMBEDDINGS=true" >> .env; \
-		echo "KHOJ_DISABLE_MODELS=true" >> .env; \
-		echo "KHOJ_SKIP_ADMIN_INIT=true" >> .env; \
-	else \
-		# Ensure all required variables are present \
-		echo -n "$(DIM)Checking for required environment variables...$(RESET)\r"; \
-		for VAR in POSTGRES_PASSWORD POSTGRES_USER POSTGRES_DB POSTGRES_HOST POSTGRES_PORT KHOJ_ANONYMOUS_MODE KHOJ_DISABLE_EMBEDDINGS KHOJ_DISABLE_MODELS KHOJ_SKIP_ADMIN_INIT; do \
-			if ! grep -q "$$VAR" .env; then \
-				case $$VAR in \
-					POSTGRES_PASSWORD) echo "$$VAR=postgres" >> .env ;; \
-					POSTGRES_USER) echo "$$VAR=postgres" >> .env ;; \
-					POSTGRES_DB) echo "$$VAR=khoj" >> .env ;; \
-					POSTGRES_HOST) echo "$$VAR=localhost" >> .env ;; \
-					POSTGRES_PORT) echo "$$VAR=5432" >> .env ;; \
-					KHOJ_ANONYMOUS_MODE) echo "$$VAR=true" >> .env ;; \
-					KHOJ_DISABLE_EMBEDDINGS) echo "$$VAR=true" >> .env ;; \
-					KHOJ_DISABLE_MODELS) echo "$$VAR=true" >> .env ;; \
-					KHOJ_SKIP_ADMIN_INIT) echo "$$VAR=true" >> .env ;; \
-				esac; \
-			fi; \
-		done; \
-	fi
-	
-	@echo "$(INFO_BADGE) Step 2: Setting up PostgreSQL and database"
-	@$(MAKE) verify-db-access || $(MAKE) setup-db
-	
-	@echo "$(INFO_BADGE) Step 3: Checking for user configuration"
-	@# Make sure environment variables are set for offline mode
-	@if ! grep -q "TRANSFORMERS_OFFLINE" .env; then \
-		echo -n "$(DIM)Adding offline mode settings to .env...$(RESET)\r"; \
-		echo "TRANSFORMERS_OFFLINE=1" >> .env; \
-		echo "HF_HUB_OFFLINE=1" >> .env; \
-	fi
-	
-	@# Check if admin setup should be skipped
-	@if grep -q "KHOJ_SKIP_ADMIN_INIT=true" .env; then \
-		echo "$(OK_BADGE) Skipping admin setup as KHOJ_SKIP_ADMIN_INIT is set to true"; \
-	elif grep -q "KHOJ_ADMIN_EMAIL" .env && grep -q "KHOJ_ADMIN_PASSWORD" .env; then \
-		EMAIL=$$(grep KHOJ_ADMIN_EMAIL .env | cut -d '=' -f2); \
-		PASS=$$(grep KHOJ_ADMIN_PASSWORD .env | cut -d '=' -f2); \
-		if [ "$$EMAIL" = "admin@example.com" ] && [ "$$PASS" = "adminpassword" ]; then \
-			echo "$(WARNING_BADGE) Default admin user detected. Interactive setup recommended"; \
-			read -p "Do you want to set up a custom admin user and API key? (y/n) " answer; \
-			if [ "$$answer" = "y" ]; then \
-				$(MAKE) run-interactive; \
-				echo "$(OK_BADGE) Configuration completed. Starting servers"; \
-			else \
-				echo "$(WARNING_BADGE) Keeping default admin credentials"; \
-				echo "KHOJ_SKIP_ADMIN_INIT=true" >> .env; \
-			fi; \
-		else \
-			echo "$(OK_BADGE) Admin user already configured"; \
-		fi; \
-	else \
-		echo "$(WARNING_BADGE) Admin user not configured. Running setup"; \
-		$(MAKE) run-interactive; \
-		echo "$(OK_BADGE) Configuration completed. Starting servers"; \
-	fi
-	
-	@echo "$(INFO_BADGE) Step 4: Starting servers and monitoring"
-	@$(MAKE) run-servers
-
-run-interactive:
-	@echo "$(CYAN)Initializing Khoj backend interactively...$(RESET)"
-	@echo "$(YELLOW)This will guide you through setting up an administrator account and API keys.$(RESET)"
-	@echo "$(YELLOW)--------------------------------------------------$(RESET)"
-	@echo "$(INFO_BADGE) After configuration is complete, please stop the server with Ctrl+C"
-	@echo "$(INFO_BADGE) You'll then be returned to the automated setup process."
-	@echo "$(YELLOW)--------------------------------------------------$(RESET)"
-	@echo ""
-	@read -p "Press Enter to continue to the interactive setup..." dummy
-	@if ! grep -q "KHOJ_ANONYMOUS_MODE" .env; then \
-		echo "KHOJ_ANONYMOUS_MODE=true" >> .env; \
-	fi
-	@# Ensure offline mode is properly set with KHOJ_DISABLE_EMBEDDINGS to prevent HF download attempts
-	@if ! grep -q "KHOJ_DISABLE_EMBEDDINGS" .env; then \
-		echo "KHOJ_DISABLE_EMBEDDINGS=true" >> .env; \
-	fi
-	@# Add trap to handle Ctrl+C gracefully
-	@( \
-		trap 'echo "$(YELLOW)Interactive setup interrupted. Proceeding to next step.$(RESET)"; exit 0' INT; \
-		. .venv/bin/activate && \
-		export $$(grep -v '^#' .env | xargs) && \
-		export TRANSFORMERS_OFFLINE=1 && \
-		export HF_HUB_OFFLINE=1 && \
-		export KHOJ_DISABLE_EMBEDDINGS=true && \
-		export KHOJ_DISABLE_MODELS=true && \
-		export SENTENCE_TRANSFORMERS_HOME=/tmp/non-existent-dir && \
-		export HF_HOME=/tmp/non-existent-dir && \
-		python -m khoj.main --anonymous-mode; \
-	)
-	@# Add KHOJ_SKIP_ADMIN_INIT=true to .env after interactive setup
-	@echo "$(YELLOW)Setting KHOJ_SKIP_ADMIN_INIT=true to avoid future interactive setup...$(RESET)"
-	@if ! grep -q "KHOJ_SKIP_ADMIN_INIT" .env; then \
-		echo "KHOJ_SKIP_ADMIN_INIT=true" >> .env; \
-	else \
-		sed -i 's/KHOJ_SKIP_ADMIN_INIT=.*/KHOJ_SKIP_ADMIN_INIT=true/' .env; \
-	fi
 
 # Open the .env file for editing
 edit-env:
@@ -636,11 +651,12 @@ edit-env:
 		echo "POSTGRES_DB=$(DB_NAME)" >> $(PROJECT_DIR)/.env; \
 		echo "POSTGRES_HOST=$(DB_HOST)" >> $(PROJECT_DIR)/.env; \
 		echo "POSTGRES_PORT=$(DB_PORT)" >> $(PROJECT_DIR)/.env; \
-		echo "KHOJ_ANONYMOUS_MODE=true" >> $(PROJECT_DIR)/.env; \
+		echo "KHOJ_ANONYMOUS_MODE=false" >> $(PROJECT_DIR)/.env; \
+		echo "KHOJ_ENABLE_PASSWORD_LOGIN=true" >> $(PROJECT_DIR)/.env; \
 		echo "DEFAULT_MODEL=$(DEFAULT_MODEL)" >> $(PROJECT_DIR)/.env; \
-		echo "KHOJ_ADMIN_EMAIL=admin@example.com" >> $(PROJECT_DIR)/.env; \
-		echo "KHOJ_ADMIN_PASSWORD=adminpassword" >> $(PROJECT_DIR)/.env; \
-		echo "KHOJ_SKIP_ADMIN_INIT=true" >> $(PROJECT_DIR)/.env; \
+		echo "KHOJ_ADMIN_EMAIL=dev@example.com" >> $(PROJECT_DIR)/.env; \
+		echo "KHOJ_ADMIN_PASSWORD=devpassword" >> $(PROJECT_DIR)/.env; \
+		echo "KHOJ_SKIP_ADMIN_INIT=false" >> $(PROJECT_DIR)/.env; \
 		echo "TRANSFORMERS_OFFLINE=1" >> $(PROJECT_DIR)/.env; \
 		echo "HF_HUB_OFFLINE=1" >> $(PROJECT_DIR)/.env; \
 	fi
@@ -685,11 +701,12 @@ check-env:
 		echo "POSTGRES_DB=khoj" >> .env; \
 		echo "POSTGRES_HOST=localhost" >> .env; \
 		echo "POSTGRES_PORT=5432" >> .env; \
-		echo "KHOJ_ANONYMOUS_MODE=true" >> .env; \
+		echo "KHOJ_ANONYMOUS_MODE=false" >> .env; \
+		echo "KHOJ_ENABLE_PASSWORD_LOGIN=true" >> .env; \
 		echo "DEFAULT_MODEL=gpt-4o-mini" >> .env; \
-		echo "KHOJ_ADMIN_EMAIL=admin@example.com" >> .env; \
-		echo "KHOJ_ADMIN_PASSWORD=adminpassword" >> .env; \
-		echo "KHOJ_SKIP_ADMIN_INIT=true" >> .env; \
+		echo "KHOJ_ADMIN_EMAIL=dev@example.com" >> .env; \
+		echo "KHOJ_ADMIN_PASSWORD=devpassword" >> .env; \
+		echo "KHOJ_SKIP_ADMIN_INIT=false" >> .env; \
 		echo "TRANSFORMERS_OFFLINE=1" >> .env; \
 		echo "HF_HUB_OFFLINE=1" >> .env; \
 		echo "KHOJ_DISABLE_EMBEDDINGS=true" >> .env; \
@@ -705,9 +722,51 @@ monitor-servers:
 		clear; \
 		echo "$(CYAN)===== Khoj Server Status [$(shell date '+%H:%M:%S')] =====$(RESET)"; \
 		echo ""; \
+		echo "$(CYAN)$$( \
+		cat << 'EOF'\
+    ██╗  ██╗██╗  ██╗ ██████╗      ██╗    ██████╗ ███████╗██╗   ██╗\n\
+    ██║ ██╔╝██║  ██║██╔═══██╗     ██║    ██╔══██╗██╔════╝██║   ██║\n\
+    █████╔╝ ███████║██║   ██║     ██║    ██║  ██║█████╗  ██║   ██║\n\
+    ██╔═██╗ ██╔══██║██║   ██║██   ██║    ██║  ██║██╔══╝  ╚██╗ ██╔╝\n\
+    ██║  ██╗██║  ██║╚██████╔╝╚█████╔╝    ██████╔╝███████╗ ╚████╔╝\n\
+    ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚════╝     ╚═════╝ ╚══════╝  ╚═══╝\n\
+EOF\
+		)$(RESET)"; \
+		echo ""; \
 		# Check backend status \
 		if curl -s http://localhost:42110/api/health > /dev/null 2>&1; then \
 			echo "$(GREEN)Backend server:$(RESET) Running $(GREEN)✓$(RESET) [http://localhost:42110]"; \
+			# Since backend is running, let's provide admin panel links and attempt to generate magic link \
+			echo "$(CYAN)$(BOLD)• Admin Panel:$(RESET) $(CYAN)http://localhost:42110/server/admin/$(RESET)"; \
+			echo "$(CYAN)$(BOLD)• Admin Credentials:$(RESET) $(CYAN)Email: admin@example.com / Password: adminpassword$(RESET)"; \
+			# Try to generate a direct magic link, capture errors more gracefully \
+			MAGIC_LINK=$$(. .venv/bin/activate && \
+			python -c "import os, sys; os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'khoj.app.settings'); \
+			try: \
+				import django; django.setup(); \
+				from django.contrib.auth import get_user_model; \
+				User = get_user_model(); \
+				user = User.objects.get(email='admin@example.com'); \
+				from datetime import datetime, timedelta; \
+				from django.utils.timezone import make_aware; \
+				import uuid; \
+				user.email_verification_code = str(uuid.uuid4())[:6]; \
+				user.email_verification_code_expiry = make_aware(datetime.now() + timedelta(days=1)); \
+				user.verified_email = True; \
+				user.is_active = True; \
+				user.save(); \
+				print(f'http://localhost:42110/auth/magic?code={user.email_verification_code}&email=admin@example.com'); \
+			except Exception as e: \
+				print(f'ERROR:{str(e)}'); \
+				sys.exit(1); \
+			" 2>/dev/null || echo "ERROR:Could not generate magic login link"); \
+			if [[ $$MAGIC_LINK == ERROR:* ]]; then \
+				MAGIC_ERROR=$${MAGIC_LINK#ERROR:}; \
+				echo "$(YELLOW)• Magic Link Error:$(RESET) $${MAGIC_ERROR}"; \
+				echo "$(CYAN)$(BOLD)• Alternative Login:$(RESET) $(CYAN)Use the admin credentials above to login$(RESET)"; \
+			else \
+				echo "$(CYAN)$(BOLD)• Magic Login:$(RESET) $(CYAN)$$MAGIC_LINK$(RESET)"; \
+			fi; \
 		else \
 			# Check for specific errors in the backend log \
 			if [ -f "$(TMP_DIR)/logs/backend.log" ] && grep -q "ERROR" "$(TMP_DIR)/logs/backend.log"; then \
@@ -721,11 +780,14 @@ monitor-servers:
 		# Check frontend status \
 		if curl -s http://localhost:3000 > /dev/null 2>&1; then \
 			echo "$(GREEN)Frontend server:$(RESET) Running $(GREEN)✓$(RESET) [http://localhost:3000]"; \
+			FRONTEND_PORT=3000; \
 		else \
 			if curl -s http://localhost:3001 > /dev/null 2>&1; then \
 				echo "$(GREEN)Frontend server:$(RESET) Running $(GREEN)✓$(RESET) [http://localhost:3001]"; \
+				FRONTEND_PORT=3001; \
 			elif curl -s http://localhost:3002 > /dev/null 2>&1; then \
 				echo "$(GREEN)Frontend server:$(RESET) Running $(GREEN)✓$(RESET) [http://localhost:3002]"; \
+				FRONTEND_PORT=3002; \
 			else \
 				# Check for specific errors in the frontend log \
 				if [ -f "$(TMP_DIR)/logs/frontend.log" ] && grep -q "ERROR" "$(TMP_DIR)/logs/frontend.log"; then \
@@ -742,9 +804,53 @@ monitor-servers:
 		echo "  $(YELLOW)make logs-backend$(RESET)  - View backend logs"; \
 		echo "  $(YELLOW)make logs-frontend$(RESET) - View frontend logs"; \
 		echo "  $(YELLOW)make stop-servers$(RESET)  - Stop all servers"; \
+		echo "  $(YELLOW)make admin-login$(RESET)   - Generate admin login link"; \
 		echo ""; \
 		sleep 5; \
-	done 
+	done
+
+# Generate admin login link
+admin-login:
+	@echo "$(CYAN)Generating admin login link...$(RESET)"
+	@if ! curl -s http://localhost:42110/api/health > /dev/null 2>&1; then \
+		echo "$(RED)Backend server is not running. Please start it first with 'make run-dev'.$(RESET)"; \
+		exit 1; \
+	fi
+	@. .venv/bin/activate && \
+	python -c "import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'khoj.app.settings'); \
+	try: \
+		import django; django.setup(); \
+		from django.contrib.auth import get_user_model; import uuid; \
+		User = get_user_model(); \
+		try: \
+			user = User.objects.get(email='admin@example.com'); \
+		except User.DoesNotExist: \
+			user = User.objects.create_superuser('admin@example.com', 'admin@example.com', 'adminpassword'); \
+			print('Created new admin user'); \
+		user.is_active = True; \
+		user.is_staff = True; \
+		user.is_superuser = True; \
+		user.email_verification_code = str(uuid.uuid4())[:6]; \
+		user.save(); \
+		from datetime import datetime, timedelta; \
+		from django.utils.timezone import make_aware; \
+		user.email_verification_code_expiry = make_aware(datetime.now() + timedelta(days=1)); \
+		user.verified_email = True; \
+		user.save(); \
+		print(f'Generated magic login link:'); \
+		print(f'$(CYAN)$(BOLD)http://localhost:42110/auth/magic?code={user.email_verification_code}&email=admin@example.com$(RESET)'); \
+		print(''); \
+		print(f'Admin panel access:'); \
+		print(f'$(CYAN)$(BOLD)URL: http://localhost:42110/server/admin/$(RESET)'); \
+		print(f'$(CYAN)$(BOLD)Email: admin@example.com$(RESET)'); \
+		print(f'$(CYAN)$(BOLD)Password: adminpassword$(RESET)'); \
+	except Exception as e: \
+		print(f'$(RED)Error generating login link: {str(e)}$(RESET)'); \
+		print('$(YELLOW)You can manually access the admin panel:$(RESET)'); \
+		print(f'$(CYAN)$(BOLD)URL: http://localhost:42110/server/admin/$(RESET)'); \
+		print(f'$(CYAN)$(BOLD)Email: admin@example.com$(RESET)'); \
+		print(f'$(CYAN)$(BOLD)Password: adminpassword$(RESET)'); \
+	"
 
 # Reset all (complete cleanup)
 reset-all:
@@ -809,8 +915,13 @@ reset-all:
 	@-rm -rf *.egg-info/
 	@-rm -rf .coverage
 	@-rm -rf htmlcov/
+	@# Clean Django migrations folder to ensure fresh start
+	@-rm -rf khoj/migrations/
 	@echo "$(GREEN)Application data removed.$(RESET)"
 	@echo ""
 	
 	@echo "$(GREEN)$(BOLD)Reset completed successfully!$(RESET)"
-	@echo "$(YELLOW)Your system is now clean. Run 'make run-dev' for a fresh installation.$(RESET)" 
+	@echo "$(YELLOW)Your system is now clean. Run 'make run-dev' for a fresh installation.$(RESET)"
+	@echo "$(YELLOW)Note: A user account will be created during installation with:$(RESET)"
+	@echo "$(YELLOW)  - Email: dev@example.com$(RESET)"
+	@echo "$(YELLOW)  - Password: devpassword$(RESET)" 
