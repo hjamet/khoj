@@ -499,7 +499,7 @@ run-dev: check-deps
 			sed -i 's/KHOJ_ADMIN_EMAIL=.*/KHOJ_ADMIN_EMAIL=admin@example.com/' .env; \
 		else \
 			echo "KHOJ_ADMIN_EMAIL=admin@example.com" >> .env; \
-		fi
+		fi; \
 		if grep -q "KHOJ_ADMIN_PASSWORD" .env; then \
 			sed -i 's/KHOJ_ADMIN_PASSWORD=.*/KHOJ_ADMIN_PASSWORD=adminpassword/' .env; \
 		else \
@@ -654,8 +654,8 @@ edit-env:
 		echo "KHOJ_ANONYMOUS_MODE=false" >> $(PROJECT_DIR)/.env; \
 		echo "KHOJ_ENABLE_PASSWORD_LOGIN=true" >> $(PROJECT_DIR)/.env; \
 		echo "DEFAULT_MODEL=$(DEFAULT_MODEL)" >> $(PROJECT_DIR)/.env; \
-		echo "KHOJ_ADMIN_EMAIL=dev@example.com" >> $(PROJECT_DIR)/.env; \
-		echo "KHOJ_ADMIN_PASSWORD=devpassword" >> $(PROJECT_DIR)/.env; \
+		echo "KHOJ_ADMIN_EMAIL=admin@example.com" >> $(PROJECT_DIR)/.env; \
+		echo "KHOJ_ADMIN_PASSWORD=adminpassword" >> $(PROJECT_DIR)/.env; \
 		echo "KHOJ_SKIP_ADMIN_INIT=false" >> $(PROJECT_DIR)/.env; \
 		echo "TRANSFORMERS_OFFLINE=1" >> $(PROJECT_DIR)/.env; \
 		echo "HF_HUB_OFFLINE=1" >> $(PROJECT_DIR)/.env; \
@@ -704,13 +704,11 @@ check-env:
 		echo "KHOJ_ANONYMOUS_MODE=false" >> .env; \
 		echo "KHOJ_ENABLE_PASSWORD_LOGIN=true" >> .env; \
 		echo "DEFAULT_MODEL=gpt-4o-mini" >> .env; \
-		echo "KHOJ_ADMIN_EMAIL=dev@example.com" >> .env; \
-		echo "KHOJ_ADMIN_PASSWORD=devpassword" >> .env; \
+		echo "KHOJ_ADMIN_EMAIL=admin@example.com" >> .env; \
+		echo "KHOJ_ADMIN_PASSWORD=adminpassword" >> .env; \
 		echo "KHOJ_SKIP_ADMIN_INIT=false" >> .env; \
 		echo "TRANSFORMERS_OFFLINE=1" >> .env; \
 		echo "HF_HUB_OFFLINE=1" >> .env; \
-		echo "KHOJ_DISABLE_EMBEDDINGS=true" >> .env; \
-		echo "KHOJ_DISABLE_MODELS=true" >> .env; \
 	fi
 	@$(MAKE) check-deps 
 
@@ -722,82 +720,38 @@ monitor-servers:
 		clear; \
 		echo "$(CYAN)===== Khoj Server Status [$(shell date '+%H:%M:%S')] =====$(RESET)"; \
 		echo ""; \
-		echo "$(CYAN)$$( \
-		cat << 'EOF'\
-    ██╗  ██╗██╗  ██╗ ██████╗      ██╗    ██████╗ ███████╗██╗   ██╗\n\
-    ██║ ██╔╝██║  ██║██╔═══██╗     ██║    ██╔══██╗██╔════╝██║   ██║\n\
-    █████╔╝ ███████║██║   ██║     ██║    ██║  ██║█████╗  ██║   ██║\n\
-    ██╔═██╗ ██╔══██║██║   ██║██   ██║    ██║  ██║██╔══╝  ╚██╗ ██╔╝\n\
-    ██║  ██╗██║  ██║╚██████╔╝╚█████╔╝    ██████╔╝███████╗ ╚████╔╝\n\
-    ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚════╝     ╚═════╝ ╚══════╝  ╚═══╝\n\
-EOF\
-		)$(RESET)"; \
+		echo "$(CYAN)    ██╗  ██╗██╗  ██╗ ██████╗      ██╗    ██████╗ ███████╗██╗   ██╗$(RESET)"; \
+		echo "$(CYAN)    ██║ ██╔╝██║  ██║██╔═══██╗     ██║    ██╔══██╗██╔════╝██║   ██║$(RESET)"; \
+		echo "$(CYAN)    █████╔╝ ███████║██║   ██║     ██║    ██║  ██║█████╗  ██║   ██║$(RESET)"; \
+		echo "$(CYAN)    ██╔═██╗ ██╔══██║██║   ██║██   ██║    ██║  ██║██╔══╝  ╚██╗ ██╔╝$(RESET)"; \
+		echo "$(CYAN)    ██║  ██╗██║  ██║╚██████╔╝╚█████╔╝    ██████╔╝███████╗ ╚████╔╝$(RESET)"; \
+		echo "$(CYAN)    ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚════╝     ╚═════╝ ╚══════╝  ╚═══╝$(RESET)"; \
 		echo ""; \
 		# Check backend status \
 		if curl -s http://localhost:42110/api/health > /dev/null 2>&1; then \
 			echo "$(GREEN)Backend server:$(RESET) Running $(GREEN)✓$(RESET) [http://localhost:42110]"; \
-			# Since backend is running, let's provide admin panel links and attempt to generate magic link \
+			# Since backend is running, provide admin panel links \
 			echo "$(CYAN)$(BOLD)• Admin Panel:$(RESET) $(CYAN)http://localhost:42110/server/admin/$(RESET)"; \
 			echo "$(CYAN)$(BOLD)• Admin Credentials:$(RESET) $(CYAN)Email: admin@example.com / Password: adminpassword$(RESET)"; \
-			# Try to generate a direct magic link, capture errors more gracefully \
-			MAGIC_LINK=$$(. .venv/bin/activate && \
-			python -c "import os, sys; os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'khoj.app.settings'); \
-			try: \
-				import django; django.setup(); \
-				from django.contrib.auth import get_user_model; \
-				User = get_user_model(); \
-				user = User.objects.get(email='admin@example.com'); \
-				from datetime import datetime, timedelta; \
-				from django.utils.timezone import make_aware; \
-				import uuid; \
-				user.email_verification_code = str(uuid.uuid4())[:6]; \
-				user.email_verification_code_expiry = make_aware(datetime.now() + timedelta(days=1)); \
-				user.verified_email = True; \
-				user.is_active = True; \
-				user.save(); \
-				print(f'http://localhost:42110/auth/magic?code={user.email_verification_code}&email=admin@example.com'); \
-			except Exception as e: \
-				print(f'ERROR:{str(e)}'); \
-				sys.exit(1); \
-			" 2>/dev/null || echo "ERROR:Could not generate magic login link"); \
-			if [[ $$MAGIC_LINK == ERROR:* ]]; then \
-				MAGIC_ERROR=$${MAGIC_LINK#ERROR:}; \
-				echo "$(YELLOW)• Magic Link Error:$(RESET) $${MAGIC_ERROR}"; \
-				echo "$(CYAN)$(BOLD)• Alternative Login:$(RESET) $(CYAN)Use the admin credentials above to login$(RESET)"; \
+			# Try to generate a direct magic link \
+			MAGIC=$$(. .venv/bin/activate && python -c "import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'khoj.app.settings'); try: import django; django.setup(); from django.contrib.auth import get_user_model; User = get_user_model(); user = User.objects.get(email='admin@example.com'); import uuid; user.email_verification_code = str(uuid.uuid4())[:6]; from datetime import datetime, timedelta; from django.utils.timezone import make_aware; user.email_verification_code_expiry = make_aware(datetime.now() + timedelta(days=1)); user.verified_email = True; user.is_active = True; user.save(); print('http://localhost:42110/auth/magic?code=' + user.email_verification_code + '&email=admin@example.com'); except Exception as e: print('ERROR:' + str(e));" 2>/dev/null || echo "ERROR:Failed"); \
+			if [[ $$MAGIC == ERROR:* ]]; then \
+				echo "$(YELLOW)• Magic Link Error: Cannot generate login link$(RESET)"; \
 			else \
-				echo "$(CYAN)$(BOLD)• Magic Login:$(RESET) $(CYAN)$$MAGIC_LINK$(RESET)"; \
+				echo "$(CYAN)$(BOLD)• Magic Login:$(RESET) $(CYAN)$$MAGIC$(RESET)"; \
 			fi; \
 		else \
-			# Check for specific errors in the backend log \
-			if [ -f "$(TMP_DIR)/logs/backend.log" ] && grep -q "ERROR" "$(TMP_DIR)/logs/backend.log"; then \
-				LAST_ERROR=$$(grep -a "ERROR" "$(TMP_DIR)/logs/backend.log" | tail -1); \
-				echo "$(RED)Backend server:$(RESET) Error detected $(RED)✗$(RESET)"; \
-				echo "$(YELLOW)Last error:$(RESET) $${LAST_ERROR:0:80}..."; \
-			else \
-				echo "$(RED)Backend server:$(RESET) Not running $(RED)✗$(RESET)"; \
-			fi; \
+			echo "$(RED)Backend server:$(RESET) Not running $(RED)✗$(RESET)"; \
 		fi; \
 		# Check frontend status \
 		if curl -s http://localhost:3000 > /dev/null 2>&1; then \
 			echo "$(GREEN)Frontend server:$(RESET) Running $(GREEN)✓$(RESET) [http://localhost:3000]"; \
-			FRONTEND_PORT=3000; \
+		elif curl -s http://localhost:3001 > /dev/null 2>&1; then \
+			echo "$(GREEN)Frontend server:$(RESET) Running $(GREEN)✓$(RESET) [http://localhost:3001]"; \
+		elif curl -s http://localhost:3002 > /dev/null 2>&1; then \
+			echo "$(GREEN)Frontend server:$(RESET) Running $(GREEN)✓$(RESET) [http://localhost:3002]"; \
 		else \
-			if curl -s http://localhost:3001 > /dev/null 2>&1; then \
-				echo "$(GREEN)Frontend server:$(RESET) Running $(GREEN)✓$(RESET) [http://localhost:3001]"; \
-				FRONTEND_PORT=3001; \
-			elif curl -s http://localhost:3002 > /dev/null 2>&1; then \
-				echo "$(GREEN)Frontend server:$(RESET) Running $(GREEN)✓$(RESET) [http://localhost:3002]"; \
-				FRONTEND_PORT=3002; \
-			else \
-				# Check for specific errors in the frontend log \
-				if [ -f "$(TMP_DIR)/logs/frontend.log" ] && grep -q "ERROR" "$(TMP_DIR)/logs/frontend.log"; then \
-					LAST_ERROR=$$(grep -a "ERROR" "$(TMP_DIR)/logs/frontend.log" | tail -1); \
-					echo "$(RED)Frontend server:$(RESET) Error detected $(RED)✗$(RESET)"; \
-					echo "$(YELLOW)Last error:$(RESET) $${LAST_ERROR:0:80}..."; \
-				else \
-					echo "$(RED)Frontend server:$(RESET) Not running $(RED)✗$(RESET)"; \
-				fi; \
-			fi; \
+			echo "$(RED)Frontend server:$(RESET) Not running $(RED)✗$(RESET)"; \
 		fi; \
 		echo ""; \
 		echo "$(CYAN)Commands:$(RESET)"; \
@@ -923,5 +877,5 @@ reset-all:
 	@echo "$(GREEN)$(BOLD)Reset completed successfully!$(RESET)"
 	@echo "$(YELLOW)Your system is now clean. Run 'make run-dev' for a fresh installation.$(RESET)"
 	@echo "$(YELLOW)Note: A user account will be created during installation with:$(RESET)"
-	@echo "$(YELLOW)  - Email: dev@example.com$(RESET)"
-	@echo "$(YELLOW)  - Password: devpassword$(RESET)" 
+	@echo "$(YELLOW)  - Email: admin@example.com$(RESET)"
+	@echo "$(YELLOW)  - Password: adminpassword$(RESET)" 
