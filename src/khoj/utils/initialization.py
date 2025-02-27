@@ -25,6 +25,18 @@ logger = logging.getLogger(__name__)
 
 def initialization(interactive: bool = True):
     def _create_admin_user():
+        # Check if we should skip admin initialization (for our custom Makefile workflow)
+        if os.getenv("KHOJ_SKIP_ADMIN_INIT") == "true":
+            logger.info("Skipping admin user creation as KHOJ_SKIP_ADMIN_INIT is set to true")
+            # Check if admin user already exists and log it
+            from django.contrib.auth import get_user_model
+
+            User = get_user_model()
+            admin_users = list(User.objects.filter(is_superuser=True).values_list("email", flat=True))
+            if admin_users:
+                logger.info(f"Admin users already exist: {admin_users}")
+            return
+
         logger.info(
             "👩‍✈️ Setting up admin user. These credentials will allow you to configure your server at /server/admin."
         )
@@ -57,9 +69,7 @@ def initialization(interactive: bool = True):
                 other_available_models = [model for model in default_chat_models if model not in valid_default_models]
                 default_chat_models = valid_default_models + other_available_models
             except Exception as e:
-                logger.warning(
-                    f"⚠️ Failed to fetch {provider} chat models. Fallback to default models. Error: {str(e)}"
-                )
+                logger.warning(f"⚠️ Failed to fetch {provider} chat models. Fallback to default models. Error: {str(e)}")
 
         # Set up OpenAI's online chat models
         openai_configured, openai_provider = _setup_chat_model_provider(
