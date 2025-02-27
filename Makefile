@@ -141,6 +141,11 @@ install-backend: create-venv
 # Install frontend dependencies
 install-frontend:
 	@echo "$(CYAN)Installing frontend dependencies...$(RESET)"
+	@# Check if yarn is installed
+	@if ! command -v yarn >/dev/null 2>&1; then \
+		echo "$(YELLOW)Yarn not found. Installing yarn...$(RESET)"; \
+		npm install -g yarn || (echo "$(RED)Error installing yarn. Please install it manually.$(RESET)" && exit 1); \
+	fi
 	@cd $(WEB_DIR) && yarn install || (echo "$(RED)Error installing frontend dependencies$(RESET)" && exit 1)
 	@echo "$(GREEN)Frontend dependencies installed successfully.$(RESET)"
 
@@ -235,6 +240,8 @@ setup-api-keys:
 		echo "KHOJ_SKIP_ADMIN_INIT=true" >> $(PROJECT_DIR)/.env; \
 		echo "TRANSFORMERS_OFFLINE=1" >> $(PROJECT_DIR)/.env; \
 		echo "HF_HUB_OFFLINE=1" >> $(PROJECT_DIR)/.env; \
+		echo "KHOJ_DISABLE_EMBEDDINGS=true" >> $(PROJECT_DIR)/.env; \
+		echo "KHOJ_DISABLE_MODELS=true" >> $(PROJECT_DIR)/.env; \
 	fi
 	
 	@echo "$(QUESTION_BADGE) Do you want to configure an OpenAI API key? (y/n) $(RESET)"
@@ -423,6 +430,9 @@ run-servers: check-env
 	  export HF_HUB_OFFLINE=1 && \
 	  export KHOJ_SKIP_ADMIN_INIT=true && \
 	  export KHOJ_DISABLE_EMBEDDINGS=true && \
+	  export KHOJ_DISABLE_MODELS=true && \
+	  export SENTENCE_TRANSFORMERS_HOME=/tmp/non-existent-dir && \
+	  export HF_HOME=/tmp/non-existent-dir && \
 	  python -m khoj.main --host 127.0.0.1 --port 42110 --anonymous-mode --non-interactive > $(TMP_DIR)/logs/backend.log 2>&1 &
 	@echo "$(INFO_BADGE) Backend server starting at http://localhost:42110$(RESET)"
 	@echo "$(LOADING_BADGE) Waiting for backend to initialize...$(RESET)"
@@ -494,11 +504,12 @@ run-dev: check-deps
 		echo "TRANSFORMERS_OFFLINE=1" >> .env; \
 		echo "HF_HUB_OFFLINE=1" >> .env; \
 		echo "KHOJ_DISABLE_EMBEDDINGS=true" >> .env; \
+		echo "KHOJ_DISABLE_MODELS=true" >> .env; \
 		echo "KHOJ_SKIP_ADMIN_INIT=true" >> .env; \
 	else \
 		# Ensure all required variables are present \
 		echo "$(YELLOW)Checking for required environment variables...$(RESET)"; \
-		for VAR in POSTGRES_PASSWORD POSTGRES_USER POSTGRES_DB POSTGRES_HOST POSTGRES_PORT KHOJ_ANONYMOUS_MODE KHOJ_DISABLE_EMBEDDINGS KHOJ_SKIP_ADMIN_INIT; do \
+		for VAR in POSTGRES_PASSWORD POSTGRES_USER POSTGRES_DB POSTGRES_HOST POSTGRES_PORT KHOJ_ANONYMOUS_MODE KHOJ_DISABLE_EMBEDDINGS KHOJ_DISABLE_MODELS KHOJ_SKIP_ADMIN_INIT; do \
 			if ! grep -q "$$VAR" .env; then \
 				case $$VAR in \
 					POSTGRES_PASSWORD) echo "$$VAR=postgres" >> .env ;; \
@@ -508,6 +519,7 @@ run-dev: check-deps
 					POSTGRES_PORT) echo "$$VAR=5432" >> .env ;; \
 					KHOJ_ANONYMOUS_MODE) echo "$$VAR=true" >> .env ;; \
 					KHOJ_DISABLE_EMBEDDINGS) echo "$$VAR=true" >> .env ;; \
+					KHOJ_DISABLE_MODELS) echo "$$VAR=true" >> .env ;; \
 					KHOJ_SKIP_ADMIN_INIT) echo "$$VAR=true" >> .env ;; \
 				esac; \
 				echo "$(YELLOW)Added missing variable: $$VAR$(RESET)"; \
@@ -578,6 +590,9 @@ run-interactive:
 		export TRANSFORMERS_OFFLINE=1 && \
 		export HF_HUB_OFFLINE=1 && \
 		export KHOJ_DISABLE_EMBEDDINGS=true && \
+		export KHOJ_DISABLE_MODELS=true && \
+		export SENTENCE_TRANSFORMERS_HOME=/tmp/non-existent-dir && \
+		export HF_HOME=/tmp/non-existent-dir && \
 		python -m khoj.main --anonymous-mode; \
 	)
 	@# Add KHOJ_SKIP_ADMIN_INIT=true to .env after interactive setup
@@ -654,6 +669,7 @@ check-env:
 		echo "TRANSFORMERS_OFFLINE=1" >> .env; \
 		echo "HF_HUB_OFFLINE=1" >> .env; \
 		echo "KHOJ_DISABLE_EMBEDDINGS=true" >> .env; \
+		echo "KHOJ_DISABLE_MODELS=true" >> .env; \
 	fi
 	@$(MAKE) check-deps 
 
